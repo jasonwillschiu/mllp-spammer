@@ -44,19 +44,22 @@ def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padd
     s.connect((host,port))
     # create random uuid
     id = str(uuid.uuid4())
-    print(f'id = {id}')
+    # print(f'id = {id}')
     # send message
     s.sendall(message_bytes)
     now_send = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
-    print(f'send datetime = {now_send}')
+    # print(f'send datetime = {now_send}')
     # the reply in bytes
     reply_bytes = s.recv(1024)
     now_rec = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
-    print(f'recv datetime = {now_rec}')
+    # print(f'recv datetime = {now_rec}')
     reply = reply_bytes.decode('utf-8')
     if(remove_output_padding=='true'):
       reply = reply.replace('\x0b','').replace('\x1c\x0d','')
-    print(f'reply = {reply}')
+    # print(f'reply = {reply}')
+    # reply will now be csv style
+    # with columns id, sendtime, recvtime, reply msg
+    print(f'{id},{now_send},{now_rec},{reply}')
     return reply
   except socket.error as socketerror:
     print(f'Socket Error - {socketerror} - perhaps start checking: network connectivity and your hl7 message')
