@@ -52,14 +52,6 @@ GT1|1|90389|TEST^PAHSEVENACARDTELEM^^||8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|(
 IN1|1|1070006^UHC PPO|10700|UHC|^^ATLANTA^GA^^|||||||20200219||||TEST^PAHSEVENACARDTELEM^^|Self|19770919|8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|||1|||||||||||||13603|23423||||||Full|F|^^^^^USA|||BOTH||
 IN2||000-00-0000|||Payor Plan||||||||||||||||||||||||||||||||||||||||||||||||||||||||23423||(999)999-9999^^^^^999^9999999|||||||CDC\x1c\x0d"""
 
-data_sent = {
-  'testDay':'blah',
-  'correlationId':'blah',
-  "acknowledgmentCode": "Sender_Sent",
-  "message": sample_hl7
-}
-data_recv = 
-
 # function for it
 async def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padding='true'):
   # try grab the reply
