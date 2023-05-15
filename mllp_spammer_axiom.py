@@ -109,7 +109,7 @@ async def mllp_transmit(host,port,message,add_input_padding='false',remove_outpu
 
 # this function runs until explicitly shut down, the scheduler doesn't stop
 # assume we want a minimum send rate of 1 per second
-def mllp_spammer(sends_per_sec,host,port,message,add_input_padding='false',remove_output_padding='true',mode='spam'):
+async def mllp_spammer(sends_per_sec,host,port,message,add_input_padding='false',remove_output_padding='true',mode='spam'):
   if(mode=='spam'):
     sec_interval = 1 / sends_per_sec
     sched = BlockingScheduler()
@@ -120,7 +120,7 @@ def mllp_spammer(sends_per_sec,host,port,message,add_input_padding='false',remov
                   seconds=sec_interval)
     sched.start()
   else:
-    mllp_transmit(host,port,message,add_input_padding,remove_output_padding)
+    await mllp_transmit(host,port,message,add_input_padding,remove_output_padding)
 
 
 
