@@ -57,7 +57,7 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
     # send message
     s.sendall(message_bytes)
     send_day = datetime.today().strftime('%Y-%m-%d')
-    send_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    send_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
     # send the async log to axiom
     axiom_client.ingest_events(
       dataset=log_dataset,
@@ -73,7 +73,7 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
     # print(f'send datetime = {now_send}')
     # the reply in bytes
     reply_bytes = s.recv(1024)
-    recv_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    recv_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
     # print(f'recv datetime = {now_rec}')
     reply = reply_bytes.decode('utf-8')
     if(remove_output_padding=='true'):
@@ -94,8 +94,20 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
       ])
     print(f'{id},{send_datetime},{recv_datetime},{reply}')
     return reply
-  except socket.error as socketerror:
-    print(f'Socket Error - {socketerror} - perhaps start checking: network connectivity and your hl7 message')
+  except Exception as e:
+    error_line = f'Error - {e}'
+    axiom_client.ingest_events(
+      dataset=log_dataset,
+      events=[
+        {
+          'testDay':send_day,
+          'correlationId':id,
+          'messageSentTimeStamp':send_datetime,
+          'acknowledgmentCode':'Sender_Error',
+          "message":error_line
+        }
+      ])
+    print(error_line)
   finally:
     s.close()
 
@@ -163,6 +175,6 @@ mllp_spammer(sends_per_sec=sps,
              host=host,
              port=port,
              message=sample_hl7,
-             ld=ld,
+             log_dataset=ld,
              mode=mode
 )
