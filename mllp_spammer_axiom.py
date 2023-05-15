@@ -16,12 +16,6 @@ import axiom
 # setup for axiom logging
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
-url = f"https://api.axiom.co/v1/datasets/{DATASET_NAME}/ingest"
-headers = {
-    "Authorization": f"Bearer {API_TOKEN}",
-    "Content-Type": "application/json"
-}
-
 axiom_client = axiom.Client(API_TOKEN)
 
 # sample test message
