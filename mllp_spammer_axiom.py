@@ -1,3 +1,4 @@
+# version 0.1.0 - added async axiom loggin via trio and httpx
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
 # jason.chiu@salesforce.com
@@ -8,6 +9,27 @@ from datetime import datetime
 import uuid # generate an id for each send
 # need to pip install apscheduler, use Blocking so we can cancel their running from command line
 from apscheduler.schedulers.blocking import BlockingScheduler
+from dotenv import load_dotenv
+import os
+import httpx
+import trio
+import json
+
+# setup for axiom async logging
+load_dotenv()
+API_TOKEN = os.getenv('API_TOKEN')
+DATASET_NAME = os.getenv('DATASET_NAME')
+url = f"https://api.axiom.co/v1/datasets/{DATASET_NAME}/ingest"
+headers = {
+    "Authorization": f"Bearer {API_TOKEN}",
+    "Content-Type": "application/json"
+}
+# axiom accepts json array, e.g. [{k1:v1,k2:v2},{k3:v3},etc]
+# run the statement with trio.run(async_send_to_axiom,url,headers,data)
+async def async_send_to_axiom(url,headers,jsonarray):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url=url,headers=headers,data=json.dumps(jsonarray))
+        print(response)
 
 # sample test message
 sample_hl7 = """\x0bMSH|^~\&|Primary|PIEDMONT ATLANTA HOSPITAL|CL|PDMT|20200319170944|ADTPA|ADT^A01|203478||2.8.1|||||||||||
@@ -30,8 +52,16 @@ GT1|1|90389|TEST^PAHSEVENACARDTELEM^^||8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|(
 IN1|1|1070006^UHC PPO|10700|UHC|^^ATLANTA^GA^^|||||||20200219||||TEST^PAHSEVENACARDTELEM^^|Self|19770919|8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|||1|||||||||||||13603|23423||||||Full|F|^^^^^USA|||BOTH||
 IN2||000-00-0000|||Payor Plan||||||||||||||||||||||||||||||||||||||||||||||||||||||||23423||(999)999-9999^^^^^999^9999999|||||||CDC\x1c\x0d"""
 
+data_sent = {
+  'testDay':'blah',
+  'correlationId':'blah',
+  "acknowledgmentCode": "Sender_Sent",
+  "message": sample_hl7
+}
+data_recv = 
+
 # function for it
-def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padding='true'):
+async def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padding='true'):
   # try grab the reply
   try:
     # add padding as needed
@@ -47,11 +77,21 @@ def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padd
     # print(f'id = {id}')
     # send message
     s.sendall(message_bytes)
-    now_send = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    send_day = datetime.today().strftime('%Y-%m-%d')
+    send_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    data_sent = [{
+      'testDay':send_day,
+      'correlationId':id,
+      'messageSentTimeStamp':send_datetime,
+      'acknowledgmentCode':'Sender_Sent',
+      "message":sample_hl7
+    }]
+    # send the async log to axiom
+    trio.run(async_send_to_axiom,url,headers,data_sent)
     # print(f'send datetime = {now_send}')
     # the reply in bytes
     reply_bytes = s.recv(1024)
-    now_rec = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    recv_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
     # print(f'recv datetime = {now_rec}')
     reply = reply_bytes.decode('utf-8')
     if(remove_output_padding=='true'):
@@ -59,7 +99,16 @@ def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padd
     # print(f'reply = {reply}')
     # reply will now be csv style
     # with columns id, sendtime, recvtime, reply msg
-    print(f'{id},{now_send},{now_rec},{reply}')
+    data_recv = [{
+      'testDay':send_day,
+      'correlationId':id,
+      'messageSentTimeStamp':recv_datetime,
+      'acknowledgmentCode':'Sender_Recv',
+      "message":reply
+    }]
+    # send the async log to axiom
+    trio.run(async_send_to_axiom,url,headers,data_recv)
+    print(f'{id},{send_datetime},{recv_datetime},{reply}')
     return reply
   except socket.error as socketerror:
     print(f'Socket Error - {socketerror} - perhaps start checking: network connectivity and your hl7 message')
@@ -128,3 +177,4 @@ mllp_spammer(sends_per_sec=sps,
              message=sample_hl7,
              mode=mode
 )
+
