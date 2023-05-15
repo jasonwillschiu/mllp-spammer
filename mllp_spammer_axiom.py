@@ -163,10 +163,10 @@ mode = args.Mode
 #   print("Displaying SendsPerSecond as: % s" % args.SendsPerSecond)
 #   print(type(args.SendsPerSecond))
 
-mllp_spammer(sends_per_sec=sps,
-             host=host,
-             port=port,
-             message=sample_hl7,
-             mode=mode
-)
-
+# mllp_spammer(sends_per_sec=sps,
+#              host=host,
+#              port=port,
+#              message=sample_hl7,
+#              mode=mode
+# )
+trio.run(mllp_spammer,sps,host,port,sample_hl7,mode)
