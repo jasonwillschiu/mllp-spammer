@@ -1,4 +1,4 @@
-# version 0.1.0 - added async axiom loggin via trio and httpx
+# version 0.1.0 - added axiom logging via python sdk
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
 # jason.chiu@salesforce.com
@@ -11,25 +11,18 @@ import uuid # generate an id for each send
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 import os
-import httpx
-import trio
-import json
+import axiom
 
-# setup for axiom async logging
+# setup for axiom logging
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
-DATASET_NAME = os.getenv('DATASET_NAME')
 url = f"https://api.axiom.co/v1/datasets/{DATASET_NAME}/ingest"
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",
     "Content-Type": "application/json"
 }
-# axiom accepts json array, e.g. [{k1:v1,k2:v2},{k3:v3},etc]
-# run the statement with trio.run(async_send_to_axiom,url,headers,data)
-async def async_send_to_axiom(url,headers,jsonarray):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url=url,headers=headers,data=json.dumps(jsonarray))
-        print(response)
+
+axiom_client = axiom.Client(API_TOKEN)
 
 # sample test message
 sample_hl7 = """\x0bMSH|^~\&|Primary|PIEDMONT ATLANTA HOSPITAL|CL|PDMT|20200319170944|ADTPA|ADT^A01|203478||2.8.1|||||||||||
@@ -53,7 +46,7 @@ IN1|1|1070006^UHC PPO|10700|UHC|^^ATLANTA^GA^^|||||||20200219||||TEST^PAHSEVENAC
 IN2||000-00-0000|||Payor Plan||||||||||||||||||||||||||||||||||||||||||||||||||||||||23423||(999)999-9999^^^^^999^9999999|||||||CDC\x1c\x0d"""
 
 # function for it
-async def mllp_transmit(host,port,message,add_input_padding='false',remove_output_padding='true'):
+def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove_output_padding='true'):
   # try grab the reply
   try:
     # add padding as needed
@@ -71,15 +64,18 @@ async def mllp_transmit(host,port,message,add_input_padding='false',remove_outpu
     s.sendall(message_bytes)
     send_day = datetime.today().strftime('%Y-%m-%d')
     send_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
-    data_sent = [{
-      'testDay':send_day,
-      'correlationId':id,
-      'messageSentTimeStamp':send_datetime,
-      'acknowledgmentCode':'Sender_Sent',
-      "message":sample_hl7
-    }]
     # send the async log to axiom
-    trio.run(async_send_to_axiom,url,headers,data_sent)
+    axiom_client.ingest_events(
+      dataset=log_dataset,
+      events=[
+        {
+          'testDay':send_day,
+          'correlationId':id,
+          'messageSentTimeStamp':send_datetime,
+          'acknowledgmentCode':'Sender_Sent',
+          "message":sample_hl7
+        }
+      ])
     # print(f'send datetime = {now_send}')
     # the reply in bytes
     reply_bytes = s.recv(1024)
@@ -91,15 +87,17 @@ async def mllp_transmit(host,port,message,add_input_padding='false',remove_outpu
     # print(f'reply = {reply}')
     # reply will now be csv style
     # with columns id, sendtime, recvtime, reply msg
-    data_recv = [{
-      'testDay':send_day,
-      'correlationId':id,
-      'messageSentTimeStamp':recv_datetime,
-      'acknowledgmentCode':'Sender_Recv',
-      "message":reply
-    }]
-    # send the async log to axiom
-    trio.run(async_send_to_axiom,url,headers,data_recv)
+    axiom_client.ingest_events(
+      dataset=log_dataset,
+      events=[
+        {
+          'testDay':send_day,
+          'correlationId':id,
+          'messageSentTimeStamp':recv_datetime,
+          'acknowledgmentCode':'Sender_Recv',
+          "message":reply
+        }
+      ])
     print(f'{id},{send_datetime},{recv_datetime},{reply}')
     return reply
   except socket.error as socketerror:
@@ -109,18 +107,18 @@ async def mllp_transmit(host,port,message,add_input_padding='false',remove_outpu
 
 # this function runs until explicitly shut down, the scheduler doesn't stop
 # assume we want a minimum send rate of 1 per second
-async def mllp_spammer(sends_per_sec,host,port,message,add_input_padding='false',remove_output_padding='true',mode='spam'):
+def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='false',remove_output_padding='true',mode='spam'):
   if(mode=='spam'):
     sec_interval = 1 / sends_per_sec
     sched = BlockingScheduler()
     # run the mllp_transmit function on this interval
     sched.add_job(mllp_transmit, 
-                  args=[host,port,message,add_input_padding,remove_output_padding], 
+                  args=[host,port,message,log_dataset,add_input_padding,remove_output_padding], 
                   trigger='interval', 
                   seconds=sec_interval)
     sched.start()
   else:
-    await mllp_transmit(host,port,message,add_input_padding,remove_output_padding)
+    mllp_transmit(host,port,message,log_dataset,add_input_padding,remove_output_padding)
 
 
 
@@ -140,6 +138,9 @@ parser.add_argument("-p", "--Port", required=True, help = textwrap.dedent('''MLL
 parser.add_argument("-m", "--Message", required=False, help = textwrap.dedent('''The MLLP message, look up HL7 docs for examples
 
 '''))
+parser.add_argument("-ld", "--LogDataset", required=True, help = textwrap.dedent('''The Axiom dataset name
+
+'''))
 parser.add_argument("-aip", "--AddInputPadding", required=False, help = textwrap.dedent('''If your message has no leading or trailing characters that HL7 needs, this adds them in \\x0b + input_message + \\x1c\\x0d
 
 '''))
@@ -157,16 +158,17 @@ host = args.Host
 port = int(args.Port)
 message = args.Message
 mode = args.Mode
+ld = args.LogDataset
 # if args.Output:
 #   print("Displaying Output as: % s" % args.Output)
 # if args.SendsPerSecond:
 #   print("Displaying SendsPerSecond as: % s" % args.SendsPerSecond)
 #   print(type(args.SendsPerSecond))
 
-# mllp_spammer(sends_per_sec=sps,
-#              host=host,
-#              port=port,
-#              message=sample_hl7,
-#              mode=mode
-# )
-trio.run(mllp_spammer,sps,host,port,sample_hl7,mode)
+mllp_spammer(sends_per_sec=sps,
+             host=host,
+             port=port,
+             message=sample_hl7,
+             ld=ld,
+             mode=mode
+)
