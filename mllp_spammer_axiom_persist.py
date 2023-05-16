@@ -1,3 +1,4 @@
+# version 0.1.0p - persistent tcp connection version
 # version 0.1.0 - added axiom logging via python sdk
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
@@ -12,6 +13,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 import os
 import axiom
+import codecs # to read the sample file correctly \ is read as \\ by default in file.read()
+import warnings # to suppress the deprecation warning from codecs
 
 # setup for axiom logging
 load_dotenv()
@@ -39,8 +42,16 @@ GT1|1|90389|TEST^PAHSEVENACARDTELEM^^||8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|(
 IN1|1|1070006^UHC PPO|10700|UHC|^^ATLANTA^GA^^|||||||20200219||||TEST^PAHSEVENACARDTELEM^^|Self|19770919|8 TEST ST^^ATHENS^GA^30605^USA^^^CLARKE|||1|||||||||||||13603|23423||||||Full|F|^^^^^USA|||BOTH||
 IN2||000-00-0000|||Payor Plan||||||||||||||||||||||||||||||||||||||||||||||||||||||||23423||(999)999-9999^^^^^999^9999999|||||||CDC\x1c\x0d"""
 
+# connect and return the connection object
+def mllp_connect(host,port):
+  s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+  # set 5 second timeout
+  s.settimeout(5.0)
+  s.connect((host,port))
+  return s
+
 # function for it
-def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove_output_padding='true'):
+def mllp_transmit(sock,message,log_dataset,add_input_padding='false',remove_output_padding='true'):
   # define vars
   id = str(uuid.uuid4())
   send_day = datetime.today().strftime('%Y-%m-%d')
@@ -50,13 +61,8 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
     # add padding as needed
     message_temp = "\x0b" + message + "\x1c\x0d" if add_input_padding=='true' else message
     message_bytes = bytes(message_temp,'utf-8')
-    # init socket
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    # set 5 second timeout
-    s.settimeout(5.0)
-    s.connect((host,port))
-    # send message
-    s.sendall(message_bytes)
+    # send message with our passed over socket object
+    sock.sendall(message_bytes)
     # send the async log to axiom
     axiom_client.ingest_events(
       dataset=log_dataset,
@@ -71,7 +77,7 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
       ])
     # print(f'send datetime = {now_send}')
     # the reply in bytes
-    reply_bytes = s.recv(1024)
+    reply_bytes = sock.recv(1024)
     recv_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
     # print(f'recv datetime = {now_rec}')
     reply = reply_bytes.decode('utf-8')
@@ -93,8 +99,6 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
       ])
     print(f'{id},{send_datetime},{recv_datetime},{reply}')
     return reply
-  except KeyboardInterrupt:
-    s.close()
   except Exception as e:
     error_line = f'Error - {e}'
     axiom_client.ingest_events(
@@ -109,9 +113,7 @@ def mllp_transmit(host,port,message,log_dataset,add_input_padding='false',remove
         }
       ])
     print(error_line)
-    s.close()
-  finally:
-    s.close()
+    sock.close()
 
 # this function runs until explicitly shut down, the scheduler doesn't stop
 # assume we want a minimum send rate of 1 per second
@@ -119,14 +121,41 @@ def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='
   if(mode=='spam'):
     sec_interval = 1 / sends_per_sec
     sched = BlockingScheduler()
+    # connect once
+    s = mllp_connect(host,port)
     # run the mllp_transmit function on this interval
     sched.add_job(mllp_transmit, 
-                  args=[host,port,message,log_dataset,add_input_padding,remove_output_padding], 
+                  args=[s,message,log_dataset,add_input_padding,remove_output_padding], 
                   trigger='interval', 
                   seconds=sec_interval)
-    sched.start()
+    try:
+      sched.start()
+    # close the socket with finally, finally hits every time, including ctrl+c
+    finally:
+      s.close()
   else:
-    mllp_transmit(host,port,message,log_dataset,add_input_padding,remove_output_padding)
+    s = mllp_connect(host,port)
+    mllp_transmit(s,message,log_dataset,add_input_padding,remove_output_padding)
+    try:
+      while True:
+        files = [x for x in os.listdir() if not (x.startswith('.'))]
+        user_input = input(f"\n\nEnter a filename (in the same folder as this mllp_spammer script) to send as an MLLP message or 'quit' to end\nHere are some files you have: {files}\n")
+        if(user_input.lower()=='quit'):
+          s.close()
+          break
+        else:
+          try:
+            with open(user_input,'r') as file:
+              # codecs.decode generates a warning because HL7 is messy DeprecationWarning: invalid escape sequence '\&'
+              with warnings.catch_warnings():
+                warnings.filterwarnings('ignore',category=DeprecationWarning)
+                data = codecs.decode(file.read(),'unicode_escape')
+              mllp_transmit(s,data,log_dataset,add_input_padding,remove_output_padding)
+          except:
+            print(f'{user_input} file not found')
+    # close the socket with finally, finally hits every time, including ctrl+c
+    finally:
+      s.close()
 
 
 
