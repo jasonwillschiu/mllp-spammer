@@ -15,6 +15,7 @@ import os
 import axiom
 import codecs # to read the sample file correctly \ is read as \\ by default in file.read()
 import warnings # to suppress the deprecation warning from codecs
+import time # to sleep and retry if needed
 
 # setup for axiom logging
 load_dotenv()
@@ -44,14 +45,28 @@ IN2||000-00-0000|||Payor Plan|||||||||||||||||||||||||||||||||||||||||||||||||||
 
 # connect and return the connection object
 def mllp_connect(host,port):
-  s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+  sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
   # set 5 second timeout
-  s.settimeout(5.0)
-  s.connect((host,port))
-  return s
+  sock.settimeout(5.0)
+  sock.connect((host,port))
+  return sock
+
+# wrapper for smaller axiom log
+def axiom_logger(logds,day,id,ts,ack,msg):
+  axiom_client.ingest_events(
+      dataset=logds,
+      events=[
+        {
+          'testDay':day,
+          'correlationId':id,
+          'messageSentTimeStamp':ts,
+          'acknowledgmentCode':ack,
+          "message":msg
+        }
+      ])
 
 # function for it
-def mllp_transmit(sock,message,log_dataset,add_input_padding='false',remove_output_padding='true'):
+def mllp_transmit(sched,sock,message,log_dataset,add_input_padding='false',remove_output_padding='true'):
   # define vars
   id = str(uuid.uuid4())
   send_day = datetime.today().strftime('%Y-%m-%d')
@@ -64,17 +79,7 @@ def mllp_transmit(sock,message,log_dataset,add_input_padding='false',remove_outp
     # send message with our passed over socket object
     sock.sendall(message_bytes)
     # send the async log to axiom
-    axiom_client.ingest_events(
-      dataset=log_dataset,
-      events=[
-        {
-          'testDay':send_day,
-          'correlationId':id,
-          'messageSentTimeStamp':send_datetime,
-          'acknowledgmentCode':'Sender_Sent',
-          "message":message_temp
-        }
-      ])
+    axiom_logger(log_dataset,send_day,id,send_datetime,'Sender_Sent',message_temp)
     # print(f'send datetime = {now_send}')
     # the reply in bytes
     reply_bytes = sock.recv(1024)
@@ -86,56 +91,53 @@ def mllp_transmit(sock,message,log_dataset,add_input_padding='false',remove_outp
     # print(f'reply = {reply}')
     # reply will now be csv style
     # with columns id, sendtime, recvtime, reply msg
-    axiom_client.ingest_events(
-      dataset=log_dataset,
-      events=[
-        {
-          'testDay':send_day,
-          'correlationId':id,
-          'messageSentTimeStamp':recv_datetime,
-          'acknowledgmentCode':'Sender_Recv',
-          "message":reply
-        }
-      ])
+    axiom_logger(log_dataset,send_day,id,recv_datetime,'Sender_Recv',reply)
     print(f'{id},{send_datetime},{recv_datetime},{reply}')
     return reply
   except Exception as e:
+    # if retrying fails
     error_line = f'Error - {e}'
-    axiom_client.ingest_events(
-      dataset=log_dataset,
-      events=[
-        {
-          'testDay':send_day,
-          'correlationId':id,
-          'messageSentTimeStamp':send_datetime,
-          'acknowledgmentCode':'Sender_Error',
-          "message":error_line
-        }
-      ])
+    axiom_logger(log_dataset,send_day,id,send_datetime,'Sender_Error',error_line)
     print(error_line)
     sock.close()
+    # stop the scheduler
+    if(sched):
+      sched.shutdown(wait=False)
+
+# put this in a function so we can call it again for a broken connection
+def schedule_spam(message,log_dataset,add_input_padding,remove_output_padding,sec_interval):
+  sched = BlockingScheduler()
+  # connect once
+  s = mllp_connect(host,port)
+  # run the mllp_transmit function on this interval
+  job = sched.add_job(mllp_transmit, 
+                args=[sched,s,message,log_dataset,add_input_padding,remove_output_padding], 
+                trigger='interval', 
+                seconds=sec_interval)
+  sched.start()
 
 # this function runs until explicitly shut down, the scheduler doesn't stop
 # assume we want a minimum send rate of 1 per second
 def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='false',remove_output_padding='true',mode='spam'):
   if(mode=='spam'):
+    # pass the per second interval to the schedule_spam function later
     sec_interval = 1 / sends_per_sec
-    sched = BlockingScheduler()
-    # connect once
-    s = mllp_connect(host,port)
-    # run the mllp_transmit function on this interval
-    sched.add_job(mllp_transmit, 
-                  args=[s,message,log_dataset,add_input_padding,remove_output_padding], 
-                  trigger='interval', 
-                  seconds=sec_interval)
-    try:
-      sched.start()
-    # close the socket with finally, finally hits every time, including ctrl+c
-    finally:
-      s.close()
+    # wrap in 3 retries, need to +1 because the first time it'll just work
+    retries = 3
+    for i in range(retries+1):
+      try:
+        schedule_spam(message,log_dataset,add_input_padding,remove_output_padding,sec_interval)
+      except Exception as e:  
+        sleep_time = i+2
+        retry_line = f'waiting {sleep_time} seconds, then retrying'
+        axiom_logger(log_dataset,'','','','Sender_Error',retry_line)
+        print(f'i={i},retry={retry_line},error={e}')
+        time.sleep(sleep_time)
+
+  # once mode
   else:
     s = mllp_connect(host,port)
-    mllp_transmit(s,message,log_dataset,add_input_padding,remove_output_padding)
+    mllp_transmit(False,s,message,log_dataset,add_input_padding,remove_output_padding)
     try:
       while True:
         files = [x for x in os.listdir() if not (x.startswith('.'))]
@@ -150,7 +152,7 @@ def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='
               with warnings.catch_warnings():
                 warnings.filterwarnings('ignore',category=DeprecationWarning)
                 data = codecs.decode(file.read(),'unicode_escape')
-              mllp_transmit(s,data,log_dataset,add_input_padding,remove_output_padding)
+              mllp_transmit(False,s,data,log_dataset,add_input_padding,remove_output_padding)
           except:
             print(f'{user_input} file not found')
     # close the socket with finally, finally hits every time, including ctrl+c
