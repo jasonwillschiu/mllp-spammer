@@ -103,6 +103,8 @@ def mllp_transmit(sched,sock,message,log_dataset,add_input_padding='false',remov
     # stop the scheduler
     if(sched):
       sched.shutdown(wait=False)
+    # chatgpt tells me to re-throw an exception here so there's still an exception in the outer function
+    raise e
 
 # put this in a function so we can call it again for a broken connection
 def schedule_spam(message,log_dataset,add_input_padding,remove_output_padding,sec_interval):
@@ -140,7 +142,7 @@ def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='
     mllp_transmit(False,s,message,log_dataset,add_input_padding,remove_output_padding)
     try:
       while True:
-        files = [x for x in os.listdir() if not (x.startswith('.'))]
+        files = [x for x in os.listdir() if (not (x.startswith('.')) and not (x.endswith('.py')))]
         user_input = input(f"\n\nEnter a filename (in the same folder as this mllp_spammer script) to send as an MLLP message or 'quit' to end\nHere are some files you have: {files}\n")
         if(user_input.lower()=='quit'):
           s.close()

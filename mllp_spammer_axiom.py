@@ -12,6 +12,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 import os
 import axiom
+import codecs # to read the sample file correctly \ is read as \\ by default in file.read()
+import warnings # to suppress the deprecation warning from codecs
 
 # setup for axiom logging
 load_dotenv()
@@ -127,7 +129,25 @@ def mllp_spammer(sends_per_sec,host,port,message,log_dataset,add_input_padding='
     sched.start()
   else:
     mllp_transmit(host,port,message,log_dataset,add_input_padding,remove_output_padding)
-
+    try:
+      while True:
+        files = [x for x in os.listdir() if (not (x.startswith('.')) and not (x.endswith('.py')))]
+        user_input = input(f"\n\nEnter a filename (in the same folder as this mllp_spammer script) to send as an MLLP message or 'quit' to end\nHere are some files you have: {files}\n")
+        if(user_input.lower()=='quit'):
+          break
+        else:
+          try:
+            with open(user_input,'r') as file:
+              # codecs.decode generates a warning because HL7 is messy DeprecationWarning: invalid escape sequence '\&'
+              with warnings.catch_warnings():
+                warnings.filterwarnings('ignore',category=DeprecationWarning)
+                data = codecs.decode(file.read(),'unicode_escape')
+              mllp_transmit(host,port,data,log_dataset,add_input_padding,remove_output_padding)
+          except:
+            print(f'{user_input} file not found')
+    # close the socket with finally, finally hits every time, including ctrl+c
+    except Exception as e:
+      print(f'Error - {e}')
 
 
 # Initialize parser
