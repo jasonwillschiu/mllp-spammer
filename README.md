@@ -3,8 +3,6 @@
 ## Summary
 Mllp_spammer.py is a load testing MLLP (Minimal Lower Layer Protocol) tool for sending HL7 messages over the TCP protocol.
 
-It’s open source and here is the code
-
 At this stage there are 3 separate Apps, with the future roadmap being to make one app with the appropriate flags. During my own usage I found this route quicker and less muddy to use.
 | App Name                      | Description                 | Notes                                                                                                                                                                                                                                                                             |
 |-------------------------------|-----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -24,13 +22,19 @@ In the cases where we use Axiom.co to log messages, both the AWS VPC and Cloudhu
 
 
 ## How to Use
-Copy the Python file you want to use to your machine.
-If you’re using an Axiom version
-Sign up to Axiom hobby tier. You’ll get 2 datasets and at least 100GB to play with
-Create API Token >> Settings > API tokens > New API Token
-Install the dependencies and create “.env” file with the Axiom API_TOKEN=[my_token_value]
-Install Python dependencies (Assumes Python version 3+)
-Run via command line python3 mllp_spammer.py [flags] 
+1. Copy the Python file you want to use to your machine.
+
+    a. If you’re using an Axiom version
+    
+        i. Sign up to Axiom hobby tier. You’ll get 2 datasets and at least 100GB to play with
+        
+        ii. Create API Token >> Settings > API tokens > New API Token
+        
+        iii. Install the dependencies and create “.env” file with the Axiom API_TOKEN=[my_token_value]
+        
+2. Install Python dependencies (Assumes Python version 3+)
+3. Run via command line python3 mllp_spammer.py [flags] 
+
 More details below
 
 ### Scenario 1 - mllp_spammer.py basic usage
