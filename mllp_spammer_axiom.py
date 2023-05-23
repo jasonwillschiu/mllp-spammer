@@ -1,6 +1,9 @@
 # version 0.1.0 - added axiom logging via python sdk
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
+# ----
+# requirements
+# pip install axiom-py python-dotenv APScheduler
 # jason.chiu@salesforce.com
 
 import argparse, textwrap

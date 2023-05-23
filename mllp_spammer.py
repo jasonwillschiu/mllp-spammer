@@ -1,5 +1,8 @@
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
+# ----
+# requirements
+# pip install APScheduler
 # jason.chiu@salesforce.com
 
 import argparse, textwrap

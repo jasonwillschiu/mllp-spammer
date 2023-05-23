@@ -2,6 +2,9 @@
 # version 0.1.0 - added axiom logging via python sdk
 # version 0.0.2 - try is now catching sockets connect error | added -mode flag for "spam" or "once" sending
 # version 0.0.1 - first working version, little error handling
+# ----
+# requirements
+# pip install axiom-py python-dotenv APScheduler
 # jason.chiu@salesforce.com
 
 import argparse, textwrap
@@ -46,8 +49,8 @@ IN2||000-00-0000|||Payor Plan|||||||||||||||||||||||||||||||||||||||||||||||||||
 # connect and return the connection object
 def mllp_connect(host,port):
   sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-  # set 5 second timeout
-  sock.settimeout(5.0)
+  # set timeout as None makes it never timeout and sets socket to blocking mode
+  sock.settimeout(None)
   sock.connect((host,port))
   return sock
 
